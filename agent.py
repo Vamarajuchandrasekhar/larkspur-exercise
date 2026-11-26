@@ -17,8 +17,51 @@ from support import (MODEL, SYSTEM_PROMPT, call_local, execute_tool, mcp_client,
 MAX_TOOL_CALLS = 8  # Larkspur's own build capped the loop here; then a human takes over.
 
 TONE_ADDENDUM = ""                       # ✏️ Build 4, step 4.1, intelligence goal
-EXTRA_TOOLS: List[Dict[str, Any]] = []   # ✏️ Build 2, step 2.1: schemas for the tools you add
-LOCAL_TOOLS: Dict[str, Any] = {}         # ✏️ Build 2, step 2.1: the functions behind them
+def cause_in_plain_words(cause_code: str, language: str = "en") -> Dict[str, Any]:
+    """Customer-facing name of a disruption cause, from cause_labels_customer
+    in disruption_policy.json."""
+    from support.mock_backend import load_policy
+    labels = load_policy().get("cause_labels_customer", {})
+    code = str(cause_code or "").strip().upper()
+    if code not in labels:
+        return {"error": "Unknown cause_code %r. Known codes: %s" % (cause_code, ", ".join(sorted(labels)))}
+    lang = str(language or "en").strip().lower()[:2]
+    by_lang = labels[code]
+    if lang not in by_lang:
+        lang = "en"
+    return {"cause_code": code, "language": lang, "customer_label": by_lang[lang]}
+
+
+EXTRA_TOOLS: List[Dict[str, Any]] = [   # ✏️ Build 2, step 2.1: schemas for the tools you add
+    {
+        "name": "cause_in_plain_words",
+        "description": (
+            "Give the customer-facing name of why a flight was disrupted, in plain words "
+            "the passenger can repeat to family or an employer (for example 'weather' or "
+            "'an aircraft maintenance issue'). Call it when the customer asks why their "
+            "flight was cancelled or delayed, after get_flight_status has returned the "
+            "internal cause code. Do not quote the raw code to the customer. Returns the "
+            "approved customer_label from Larkspur's disruption policy, in the requested language."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cause_code": {
+                    "type": "string",
+                    "description": "Internal cause code from the flight status, e.g. WX, ATC, MX, CREW, SEC.",
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Customer's language: 'en' or 'es'. Use the booking's language; defaults to 'en'.",
+                },
+            },
+            "required": ["cause_code"],
+        },
+    },
+]
+LOCAL_TOOLS: Dict[str, Any] = {          # ✏️ Build 2, step 2.1: the functions behind them
+    "cause_in_plain_words": cause_in_plain_words,
+}
 
 
 def text_of(response) -> str:
